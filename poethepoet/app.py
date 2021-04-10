@@ -7,6 +7,7 @@ from .context import RunContext
 from .exceptions import ExecutionError, PoeException
 from .task import PoeTask
 from .task.args import PoeTaskArgs
+from .task.graph import TaskExecutionGraph
 from .ui import PoeUi
 
 
@@ -50,7 +51,11 @@ class PoeThePoet:
         if not self.resolve_task():
             return 1
 
-        return self.run_task() or 0
+        assert self.task
+        if self.task.has_deps():
+            return self.run_task_graph() or 0
+        else:
+            return self.run_task() or 0
 
     def resolve_task(self) -> bool:
         task = self.ui["task"]
@@ -74,25 +79,55 @@ class PoeThePoet:
         self.task = PoeTask.from_config(task_name, config=self.config, ui=self.ui)
         return True
 
-    def run_task(self) -> Optional[int]:
+    def run_task(self, context: Optional[RunContext] = None) -> Optional[int]:
         _, *extra_args = self.ui["task"]
+        if context is None:
+            context = RunContext(
+                config=self.config,
+                env=os.environ,
+                dry=self.ui["dry_run"],
+                poe_active=os.environ.get("POE_ACTIVE"),
+            )
         try:
             assert self.task
-            return self.task.run(
-                context=RunContext(
-                    config=self.config,
-                    env=os.environ,
-                    dry=self.ui["dry_run"],
-                    poe_active=os.environ.get("POE_ACTIVE"),
-                ),
-                extra_args=extra_args,
-            )
+            return self.task.run(context=context, extra_args=extra_args)
         except PoeException as error:
             self.print_help(error=error)
             return 1
         except ExecutionError as error:
             self.ui.print_error(error=error)
             return 1
+
+    def run_task_graph(self, context: Optional[RunContext] = None) -> Optional[int]:
+        assert self.task
+        graph = TaskExecutionGraph(self.task, self.config)
+        plan = graph.get_execution_plan()
+
+        context = RunContext(
+            config=self.config,
+            env=os.environ,
+            dry=self.ui["dry_run"],
+            poe_active=os.environ.get("POE_ACTIVE"),
+        )
+
+        for stage in plan:
+            for task in stage:
+                if task == self.task:
+                    return self.run_task(context)
+
+                try:
+                    task_result = task.run(context=context)
+                    if task_result:
+                        raise ExecutionError(
+                            f"Task graph aborted after failed task {task.name!r}"
+                        )
+                except PoeException as error:
+                    self.print_help(error=error)
+                    return 1
+                except ExecutionError as error:
+                    self.ui.print_error(error=error)
+                    return 1
+        return 0
 
     def print_help(
         self,

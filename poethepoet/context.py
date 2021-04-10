@@ -20,6 +20,7 @@ class RunContext:
     project_dir: Path
     multistage: bool = False
     exec_cache: Dict[str, Any]
+    deps_cache: Dict[str, str]
 
     def __init__(
         self,
@@ -34,6 +35,7 @@ class RunContext:
         self.dry = dry
         self.poe_active = poe_active
         self.exec_cache = {}
+        self.deps_cache = {}
 
     def get_env(self, env: MutableMapping[str, str]) -> Dict[str, str]:
         return {**self.env, **env}

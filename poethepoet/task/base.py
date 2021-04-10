@@ -7,6 +7,7 @@ from typing import (
     MutableMapping,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Type,
     TYPE_CHECKING,
@@ -63,6 +64,7 @@ class PoeTask(metaclass=MetaPoeTask):
     __content_type__: Type = str
     __base_options: Dict[str, Union[Type, Tuple[Type, ...]]] = {
         "args": (dict, list),
+        "deps": dict,
         "env": dict,
         "executor": dict,
         "help": str,
@@ -136,7 +138,7 @@ class PoeTask(metaclass=MetaPoeTask):
     def run(
         self,
         context: "RunContext",
-        extra_args: Sequence[str],
+        extra_args: Sequence[str] = tuple(),
         env: Optional[MutableMapping[str, str]] = None,
     ) -> int:
         """
@@ -160,9 +162,41 @@ class PoeTask(metaclass=MetaPoeTask):
         env: MutableMapping[str, str],
     ) -> int:
         """
-        _handle_run must be implemented by a subclass and return a single executor result.
+        _handle_run must be implemented by a subclass and return a single executor
+        result.
         """
         raise NotImplementedError
+
+    def get_upstream_from_config(
+        self, config: "PoeConfig"
+    ) -> Dict[str, Tuple["PoeTask", ...]]:
+        return {
+            key: self._instantiate_dep(deps, config)
+            for key, deps in self.options.get("deps", {}).items()
+        }
+
+    def get_deps(self) -> Set[str]:
+        result = set()
+        for deps in self.options.get("deps", {}).values():
+            if isinstance(deps, str):
+                result.add(deps)
+            else:
+                for dep in deps:
+                    result.add(dep)
+        return result
+
+    def has_deps(self) -> bool:
+        return bool(self.options.get("deps", False))
+
+    def _instantiate_dep(
+        self, task_ref: Union[str, Sequence[str]], config: "PoeConfig"
+    ) -> Tuple["PoeTask", ...]:
+        if isinstance(task_ref, str):
+            return (self.from_config(task_ref, config=config, ui=self._ui),)
+        return tuple(
+            self.from_config(task_name, config=config, ui=self._ui)
+            for task_name in task_ref
+        )
 
     @staticmethod
     def _resolve_envvars(
@@ -206,6 +240,9 @@ class PoeTask(metaclass=MetaPoeTask):
     def validate_def(
         cls, task_name: str, task_def: TaskDef, config: "PoeConfig"
     ) -> Optional[str]:
+
+        # TODO: validate that deps are real tasks ... should validate acyclicality??
+
         """
         Check the given task name and definition for validity and return a message
         describing the first encountered issue if any.

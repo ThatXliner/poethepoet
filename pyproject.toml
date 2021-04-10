@@ -51,6 +51,10 @@ check = ["check-docs", "style", "types", "lint", "test"]
 # poeception
 poe = { script = "poethepoet:main", help = "Execute poe programmatically as a poe task" }
 
+_task_a = { cmd = "echo world", deps = { _ = ["style"]}}
+dag = { cmd = "echo hello $SUBJECT!", deps = { SUBJECT = "_task_a", _ = ["style", "check-docs"]}}
+
+
 [tool.tox]
 legacy_tox_ini = """
 [tox]
