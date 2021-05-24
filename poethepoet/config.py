@@ -15,6 +15,7 @@ class PoeConfig:
         "default_array_task_type": str,
         "default_array_item_task_type": str,
         "env": dict,
+        "envfile": str,
         "executor": dict,
     }
 
@@ -49,7 +50,16 @@ class PoeConfig:
 
     @property
     def global_env(self) -> Dict[str, str]:
-        return self._poe.get("env", {})
+        try:
+            envfile = parse_envfile(  # TODO: Implement this function
+                Path(self.project_dir)
+                .joinpath(self._poe.get("envfile", ".env"))
+                .resolve(strict=True)
+                .read_text()
+            )
+        except (RuntimeError, FileNotFoundError):
+            envfile = {}
+        return {**envfile, **self._poe.get("env", {})}
 
     @property
     def project(self) -> Any:
